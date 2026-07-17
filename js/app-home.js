@@ -159,6 +159,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.querySelector("#token-box-toggle").addEventListener("click", () => {
     tokenBox.classList.toggle("collapsed");
   });
+  document.querySelector("#btn-toggle-token-home").addEventListener("click", () => {
+    tokenInput.type = tokenInput.type === "password" ? "text" : "password";
+  });
+  document.querySelector("#btn-copy-token-home").addEventListener("click", async () => {
+    if (!tokenInput.value) { showToast("Nessun token da copiare.", true); return; }
+    try {
+      await navigator.clipboard.writeText(tokenInput.value);
+    } catch (e) {
+      tokenInput.select();
+      document.execCommand("copy");
+    }
+    showToast("Token copiato negli appunti.", false);
+  });
   document.querySelector("#btn-save-token-home").addEventListener("click", () => {
     GH_HOME.setToken(tokenInput.value.trim());
     updateTokenStatusHome();
