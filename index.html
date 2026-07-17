@@ -36,7 +36,11 @@
         repository personali, solo quelli dell'organization. Vedi il README per i dettagli
         (e per l'alternativa più semplice ma meno sicura col token classico).
         Resta salvato solo in questo browser.
-        <input type="password" id="gh-token-home" placeholder="github_pat_xxxxxxxxxxxxxxxxxxxx">
+        <div class="token-input-row">
+          <input type="password" id="gh-token-home" placeholder="github_pat_xxxxxxxxxxxxxxxxxxxx">
+          <button class="btn-icon" type="button" id="btn-toggle-token-home" title="Mostra/nascondi token">👁</button>
+          <button class="btn-icon" type="button" id="btn-copy-token-home" title="Copia token">📋</button>
+        </div>
         <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
           <button class="btn-secondary" id="btn-save-token-home" type="button">Salva token</button>
           <button class="btn-icon delete" id="btn-clear-token-home" type="button">Rimuovi token</button>
@@ -63,7 +67,7 @@
   </section>
 </main>
 
-<footer>potewww | Filippo Rossi</footer>
+<footer>Pagina home del sistema Rimborsi — genera nuovi eventi come repository GitHub indipendenti.</footer>
 
 <script src="js/config.js"></script>
 <script src="js/github-home.js"></script>
