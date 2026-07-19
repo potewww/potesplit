@@ -87,9 +87,16 @@
         <button class="btn-gear" type="button" aria-label="Mostra/nascondi impostazioni token">⚙</button>
       </div>
       <div class="token-box-body">
-        Serve per poter salvare le modifiche direttamente sul repository.
-        <br>Crealo su GitHub → Settings → Developer settings → Personal access tokens (fine-grained, con permesso "Contents: Read and write" sul repo). Il token resta salvato solo in questo browser (non su GitHub Pages, non visibile ad altri visitatori) e rimane impostato anche se chiudi la pagina o il browser, finché non lo rimuovi.
-        <p>Cliccando al seguente link <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GeneraToken</a>, si viene reindirizzati al sito per creare il token.</p>
+        <p>
+  Istruzioni amministratore:
+  <br>Accedere su GitHub → Settings → Developer settings → Personal access tokens (fine-grained, con permesso "Contents: Read and write" sul repo). Il token resta salvato solo in questo browser (non su GitHub Pages, non visibile ad altri visitatori) e rimane impostato anche se chiudi la pagina o il browser, finché non lo rimuovi.
+  Oppure più velocemente, cliccando al seguente link <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GeneraToken</a>, si viene reindirizzati al sito per creare il token.
+</p>
+
+<p>
+  Istruzioni utenti:
+  <br>Inserire nello spazio sottostante il token fornito dall'amministratore. Una volta fatto, chiudere il menù a tendina e non modificare più il campo.
+</p>
         <div class="token-input-row">
           <input type="password" id="gh-token" placeholder="github_pat_xxxxxxxxxxxxxxxxxxxx">
           <button class="btn-icon" type="button" id="btn-toggle-token" title="Mostra/nascondi token">👁</button>
