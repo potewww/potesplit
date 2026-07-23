@@ -1,294 +1,192 @@
-// ============================================================
-// calc.js — porting fedele della logica Lua (calcoli.tex + cene/calcolicene.tex)
-// + gestione arrotondamenti equi (centesimini) e riconciliazione automatica (solata)
-// ============================================================
-
-const CAT_CIBO = ["antipasto", "primi", "secondi", "contorni", "pizza", "panini", "frutta"];
-const CAT_BEVANDE = ["acqua", "caffe", "bibite", "birra", "vino", "liquori"];
-const CAT_ALTRO = ["centesimini", "solata", "menu", "coperto", "dolci"];
-const CAT_ALL = [...CAT_CIBO, ...CAT_BEVANDE, ...CAT_ALTRO];
-
-// "solata" non è un dato inseribile manualmente: viene calcolato automaticamente
-// (vedi applicaSolataAutomatica). Va quindi escluso dai campi del form e dal totale
-// "di base" della persona, ma resta una colonna normale ai fini di stampa/sconti.
-const CAT_INPUT = CAT_ALL.filter(c => c !== "solata");
-
-const CAT_LABELS = {
-  antipasto: "Antipasto", primi: "Primi", secondi: "Secondi", contorni: "Contorni",
-  pizza: "Pizza", panini: "Panini", frutta: "Frutta",
-  acqua: "Acqua", caffe: "Caffè", bibite: "Bibite", birra: "Birra", vino: "Vino", liquori: "Liquori",
-  centesimini: "Centesimini", solata: "Solata (auto)", menu: "Menù", coperto: "Coperto", dolci: "Dolci"
+// Stato globale dell'applicazione
+let state = {
+    partecipanti: [], // Array di stringhe (nomi)
+    spese: [] // Array di oggetti spesa/cena
 };
 
-function applicaSconto(valore, categoria, sconti) {
-  const s = (sconti && sconti[categoria]) || 0;
-  if (s > 0) return valore * (1 - s / 100);
-  return valore;
+// Genera un ID univoco
+function generateId() {
+    return '_' + Math.random().toString(36).substr(2, 9);
 }
 
-// Somma le sole categorie "di base" inserite a mano per la persona (esclude "solata")
-function totaleConSconti(p, sconti) {
-  return CAT_INPUT.reduce((sum, c) => sum + applicaSconto(p[c] || 0, c, sconti), 0);
+// Verifica se un titolo esiste già tra spese o cene
+function titoloGiaEsistente(titolo) {
+    const tNorm = titolo.trim().toLowerCase();
+    return state.spese.some(s => s.titolo.trim().toLowerCase() === tNorm);
 }
 
-function totaleSenzaSconti(p) {
-  return CAT_INPUT.reduce((sum, c) => sum + (p[c] || 0), 0);
-}
+// Calcola il dettaglio finanziario di una singola spesa/cena
+function calcolaDettaglioSpesa(spesa) {
+    let risultati = {};
+    
+    // Inizializza i dati solo per chi era presente/valido al momento della creazione
+    const partecipantiValidi = spesa.partecipantiCoinvolti || state.partecipanti;
 
-// Divide "importo" in "n" quote uguali arrotondate PER DIFETTO al centesimo, restituendo
-// anche il resto (in euro, sempre < 0.01 * n) che non è stato possibile distribuire in modo
-// equo. Il resto va assegnato a chi sta spendendo di meno (vedi chiamanti).
-function dividiInParti(importo, n) {
-  if (!n || n <= 0) return { shares: [], resto: importo };
-  const totCent = Math.round(importo * 100);
-  const baseCent = Math.floor(totCent / n);
-  const shares = new Array(n).fill(baseCent / 100);
-  const restoCent = totCent - baseCent * n;
-  return { shares, resto: Math.round(restoCent) / 100 };
-}
-
-// Calcola, per una cena, le quote derivanti dalle spese condivise, con arrotondamento equo:
-// se una spesa "divisa" non si divide esattamente in centesimi, la parte non assegnabile
-// viene aggiunta alla colonna "centesimini" della persona (tra i partecipanti a quella spesa)
-// che, al momento del calcolo, sta spendendo meno.
-// Restituisce { quoteColonna: {nome: {categoria: importo}}, quoteSeparate: {nome: {descrizione: importo}} }
-function calcolaQuoteCondivise(persone, speseCondivise, sconti) {
-  const quoteColonna = {};
-  const quoteSeparate = {};
-  const totaleCorrente = {};
-  persone.forEach(p => {
-    quoteColonna[p.nome] = {};
-    quoteSeparate[p.nome] = {};
-    totaleCorrente[p.nome] = totaleConSconti(p, sconti || {});
-  });
-
-  function assegna(nome, spesa, valore) {
-    if (spesa.colonna) {
-      if (quoteColonna[nome] !== undefined) {
-        quoteColonna[nome][spesa.colonna] = (quoteColonna[nome][spesa.colonna] || 0) + valore;
-      }
-    } else {
-      if (quoteSeparate[nome] !== undefined) quoteSeparate[nome][spesa.descrizione] = valore;
-    }
-    if (totaleCorrente[nome] !== undefined) {
-      totaleCorrente[nome] += spesa.colonna ? applicaSconto(valore, spesa.colonna, sconti || {}) : valore;
-    }
-  }
-
-  (speseCondivise || []).forEach(spesa => {
-    let part = (spesa.partecipanti && spesa.partecipanti.length) ? spesa.partecipanti : persone.map(p => p.nome);
-    part = part.filter(nome => totaleCorrente[nome] !== undefined);
-    if (part.length === 0) return;
-
-    if (spesa.tipo === "divisa") {
-      const { shares, resto } = dividiInParti(spesa.importo, part.length);
-      part.forEach((nome, i) => assegna(nome, spesa, shares[i]));
-      if (resto > 0.001) {
-        let minNome = part[0];
-        part.forEach(nome => { if (totaleCorrente[nome] < totaleCorrente[minNome]) minNome = nome; });
-        quoteColonna[minNome]["centesimini"] = (quoteColonna[minNome]["centesimini"] || 0) + resto;
-        totaleCorrente[minNome] += resto;
-      }
-    } else if (spesa.tipo === "persona") {
-      part.forEach(nome => assegna(nome, spesa, spesa.importo));
-    }
-  });
-
-  return { quoteColonna, quoteSeparate };
-}
-
-// Totale dovuto da una persona in una cena (cibo/bevande/altro + quote condivise, con sconti)
-function dovutoCena(p, sconti, quoteColonna, quoteSeparate) {
-  let t = totaleConSconti(p, sconti);
-  const qc = quoteColonna[p.nome] || {};
-  const qs = quoteSeparate[p.nome] || {};
-  for (const colonna in qc) t += applicaSconto(qc[colonna], colonna, sconti);
-  for (const desc in qs) t += qs[desc];
-  return t;
-}
-
-// "Solata": riconciliazione automatica. Se il totale pagato al tavolo supera il totale
-// dovuto calcolato (cibo+bevande+altro+condivise), la differenza viene ridistribuita in
-// modo equo tra tutti i partecipanti alla cena (colonna "solata"), con lo stesso criterio
-// di arrotondamento equo usato per le spese condivise. Se invece si è pagato meno o uguale,
-// "solata" resta a zero (non viene creato un debito automatico).
-function applicaSolataAutomatica(persone, sconti, quoteColonna, quoteSeparate) {
-  if (persone.length === 0) return;
-  const dovutoBase = {};
-  persone.forEach(p => { dovutoBase[p.nome] = dovutoCena(p, sconti, quoteColonna, quoteSeparate); });
-
-  const totgen = Object.values(dovutoBase).reduce((a, b) => a + b, 0);
-  const totpagato = persone.reduce((a, p) => a + (p.pagato || 0), 0);
-  const surplus = totpagato - totgen;
-  if (surplus <= 0.005) return;
-
-  const { shares, resto } = dividiInParti(surplus, persone.length);
-  persone.forEach((p, i) => {
-    quoteColonna[p.nome]["solata"] = (quoteColonna[p.nome]["solata"] || 0) + shares[i];
-    dovutoBase[p.nome] += shares[i];
-  });
-  if (resto > 0.001) {
-    let minNome = persone[0].nome;
-    persone.forEach(p => { if (dovutoBase[p.nome] < dovutoBase[minNome]) minNome = p.nome; });
-    quoteColonna[minNome]["centesimini"] = (quoteColonna[minNome]["centesimini"] || 0) + resto;
-  }
-}
-
-// Calcola tutte le quote di una cena (condivise + solata automatica): usata da chiunque
-// abbia bisogno dello stato completo di una cena (registro spese, dettaglio cena).
-function calcolaQuoteComplete(cena) {
-  const { quoteColonna, quoteSeparate } = calcolaQuoteCondivise(cena.persone, cena.speseCondivise, cena.sconti);
-  applicaSolataAutomatica(cena.persone, cena.sconti, quoteColonna, quoteSeparate);
-  return { quoteColonna, quoteSeparate };
-}
-
-// Genera le "spese NE" (Non Equo) da integrare nel registro spese generale,
-// una per ogni persona che ha anticipato (pagato > 0) nella cena.
-function integraCenaInSpese(cena) {
-  const { quoteColonna, quoteSeparate } = calcolaQuoteComplete(cena);
-  const nomiCena = cena.persone.map(p => p.nome);
-  const quoteCena = {};
-  cena.persone.forEach(p => {
-    quoteCena[p.nome] = dovutoCena(p, cena.sconti, quoteColonna, quoteSeparate);
-  });
-
-  const nuoveSpese = [];
-  cena.persone.forEach(p => {
-    if (p.pagato > 0) {
-      nuoveSpese.push({
-        nome: p.nome,
-        descrizione: cena.titolo + " [NE]",
-        importo: p.pagato,
-        partecipanti: [...nomiCena],
-        quote: { ...quoteCena }
-      });
-    }
-  });
-  return nuoveSpese;
-}
-
-// Divide una spesa "semplice" (non di cena) tra i suoi partecipanti con arrotondamento
-// equo: ogni quota è arrotondata per difetto al centesimo, il resto va a chi tra i
-// partecipanti sta spendendo meno al momento (in base allo stato accumulato finora).
-function ripartisciSpesaSemplice(s, part, spesaEffettivaCorrente) {
-  const { shares, resto } = dividiInParti(s.importo, part.length);
-  const risultato = {};
-  part.forEach((nome, i) => { risultato[nome] = shares[i]; });
-  if (resto > 0.001) {
-    let minNome = part[0];
-    part.forEach(nome => {
-      const cur = spesaEffettivaCorrente[nome] || 0;
-      if (cur < (spesaEffettivaCorrente[minNome] || 0)) minNome = nome;
+    state.partecipanti.forEach(p => {
+        risultati[p] = {
+            haPagato: 0,
+            haSpeso: 0,
+            solata: 0,
+            controsolata: 0,
+            centesiminiStr: "",
+            centesiminiVal: 0,
+            saldo: 0,
+            involto: partecipantiValidi.includes(p)
+        };
     });
-    risultato[minNome] += resto;
-  }
-  return risultato;
-}
 
-// Pipeline completa: dato (persone, speseBase, rimborsi, cene) calcola tutto lo stato globale.
-function calcolaStatoGlobale(persone, speseBase, rimborsiData, ceneData) {
-  const nomi = [...persone].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-
-  // 1. aggiungi le spese "NE" derivanti da ogni cena, nell'ordine in cui compaiono
-  let spese = [...speseBase];
-  ceneData.forEach(cena => {
-    spese = spese.concat(integraCenaInSpese(cena));
-  });
-
-  // 2. totale pagato da ciascuno (somma di tutte le spese anticipate)
-  const totaliPersona = {};
-  nomi.forEach(n => totaliPersona[n] = 0);
-  spese.forEach(s => {
-    if (totaliPersona[s.nome] !== undefined) totaliPersona[s.nome] += s.importo;
-  });
-
-  // 3. spesa effettiva (quota dovuta) di ciascuno, con arrotondamento equo sulle spese divise
-  const spesaEffettiva = {};
-  nomi.forEach(n => spesaEffettiva[n] = 0);
-  spese.forEach(s => {
-    if (s.quote) {
-      for (const nome in s.quote) {
-        if (spesaEffettiva[nome] !== undefined) spesaEffettiva[nome] += s.quote[nome];
-      }
-    } else {
-      const part = ((s.partecipanti && s.partecipanti.length) ? s.partecipanti : nomi).filter(n => spesaEffettiva[n] !== undefined);
-      const quote = ripartisciSpesaSemplice(s, part, spesaEffettiva);
-      part.forEach(p => { spesaEffettiva[p] += quote[p]; });
+    // 1. Calcolo di quanto ha pagato ciascuno
+    if (spesa.pagatori) {
+        Object.keys(spesa.pagatori).forEach(p => {
+            if (risultati[p]) {
+                risultati[p].haPagato = Number(spesa.pagatori[p]) || 0;
+            }
+        });
     }
-  });
 
-  const totaleGenerale = Object.values(totaliPersona).reduce((a, b) => a + b, 0);
+    // 2. Calcolo di quanto ha speso ciascuno
+    if (spesa.tipo === 'cena') {
+        // Calcolo quote cena con sconti
+        let totConsumi = 0;
+        let consumiPerPersona = {};
 
-  // 4. saldi = pagato - dovuto + rimborsi dati - rimborsi ricevuti
-  //    (derivato direttamente da spesaEffettiva, per garantire coerenza esatta con essa)
-  const saldi = {};
-  nomi.forEach(n => saldi[n] = (totaliPersona[n] || 0) - (spesaEffettiva[n] || 0));
-  rimborsiData.forEach(r => {
-    if (saldi[r.da] !== undefined) saldi[r.da] += r.importo;
-    if (saldi[r.a] !== undefined) saldi[r.a] -= r.importo;
-  });
+        partecipantiValidi.forEach(p => {
+            const c = spesa.dettagliCena[p] || { bevande: 0, cibo: 0, dolci: 0, amari: 0 };
+            const totP = (Number(c.bevande)||0) + (Number(c.cibo)||0) + (Number(c.dolci)||0) + (Number(c.amari)||0);
+            consumiPerPersona[p] = totP;
+            totConsumi += totP;
+        });
 
-  // 5. rimborsi effettuati per persona (dati / ricevuti)
-  const rimborsatoDA = {}, rimborsatoA = {};
-  nomi.forEach(n => { rimborsatoDA[n] = 0; rimborsatoA[n] = 0; });
-  rimborsiData.forEach(r => {
-    if (rimborsatoDA[r.da] !== undefined) rimborsatoDA[r.da] += r.importo;
-    if (rimborsatoA[r.a] !== undefined) rimborsatoA[r.a] += r.importo;
-  });
+        const sconti = spesa.sconti || { bevande: 0, cibo: 0, dolci: 0, amari: 0 };
+        const totSconti = (Number(sconti.bevande)||0) + (Number(sconti.cibo)||0) + (Number(sconti.dolci)||0) + (Number(sconti.amari)||0);
+        const totaleEffettivo = Math.max(0, totConsumi - totSconti);
 
-  // 6. transazioni ottimizzate per pareggiare i conti
-  const transazioni = calcolaTransazioni(saldi);
+        partecipantiValidi.forEach(p => {
+            if (totConsumi > 0) {
+                const quotaProporzionale = (consumiPerPersona[p] / totConsumi) * totaleEffettivo;
+                risultati[p].haSpeso = Math.round(quotaProporzionale * 100) / 100;
+            } else {
+                risultati[p].haSpeso = 0;
+            }
+        });
 
-  return { nomi, spese, totaliPersona, spesaEffettiva, totaleGenerale, saldi, rimborsatoDA, rimborsatoA, transazioni };
+    } else {
+        // Spesa Generica (Equa o Custom)
+        if (spesa.metodoDivisione === 'custom') {
+            partecipantiValidi.forEach(p => {
+                risultati[p].haSpeso = Number(spesa.quoteCustom[p]) || 0;
+            });
+        } else {
+            // Divisione Equa
+            const numPart = partecipantiValidi.length;
+            const totalePagato = Object.values(spesa.pagatori || {}).reduce((a, b) => a + Number(b), 0);
+            if (numPart > 0) {
+                const quotaBase = Math.floor((totalePagato / numPart) * 100) / 100;
+                let restoCentesimi = Math.round((totalePagato - (quotaBase * numPart)) * 100);
+
+                partecipantiValidi.forEach((p, idx) => {
+                    let quota = quotaBase;
+                    if (idx < restoCentesimi) {
+                        quota = Math.round((quota + 0.01) * 100) / 100;
+                        risultati[p].centesiminiVal += 0.01;
+                        risultati[p].centesiminiStr = "+0.01";
+                    }
+                    risultati[p].haSpeso = quota;
+                });
+            }
+        }
+    }
+
+    // 3. Calcolo Solata / Controsolata e Saldo
+    let noteSolata = [];
+
+    partecipantiValidi.forEach(p => {
+        const d = risultati[p];
+        d.saldo = Math.round((d.haPagato - d.haSpeso) * 100) / 100;
+
+        // Gestione Solata / Controsolata per la specifica voce
+        if (spesa.solate && spesa.solate[p]) {
+            const s = spesa.solate[p];
+            if (s > 0) {
+                d.solata = s;
+                noteSolata.push(`${p} ha subito una solata di +€${s.toFixed(2)} (quota teorica: €${(d.haSpeso - s).toFixed(2)})`);
+            } else if (s < 0) {
+                d.controsolata = Math.abs(s);
+                noteSolata.push(`${p} ha avuto una controsolata di -€${Math.abs(s).toFixed(2)} (quota teorica: €${(d.haSpeso + Math.abs(s)).toFixed(2)})`);
+            }
+        }
+    });
+
+    return { dettagliPersona: risultati, noteSolata: noteSolata };
 }
 
-function calcolaTransazioni(saldi) {
-  const debitori = [];
-  const creditori = [];
-  for (const nome in saldi) {
-    const s = saldi[nome];
-    if (s < -0.01) debitori.push({ nome, importo: -s });
-    else if (s > 0.01) creditori.push({ nome, importo: s });
-  }
-  debitori.sort((a, b) => a.nome.toLowerCase().localeCompare(b.nome.toLowerCase()));
-  creditori.sort((a, b) => a.nome.toLowerCase().localeCompare(b.nome.toLowerCase()));
+// Algoritmo di calcolo dei rimborsi ottimizzati
+function calcolaRimborsiOptimizzati(saldiMap) {
+    let debitori = [];
+    let creditori = [];
 
-  const transazioni = [];
-  let iD = 0, iC = 0;
-  while (iD < debitori.length && iC < creditori.length) {
-    const d = debitori[iD], c = creditori[iC];
-    const imp = Math.min(d.importo, c.importo);
-    if (imp > 0.01) transazioni.push({ da: d.nome, a: c.nome, importo: imp });
-    d.importo -= imp;
-    c.importo -= imp;
-    if (d.importo < 0.01) iD++;
-    if (c.importo < 0.01) iC++;
-  }
-  return transazioni;
+    Object.keys(saldiMap).forEach(p => {
+        const val = Math.round(saldiMap[p] * 100) / 100;
+        if (val < -0.001) {
+            debitori.push({ nome: p, importo: Math.abs(val) });
+        } else if (val > 0.001) {
+            creditori.push({ nome: p, importo: val });
+        }
+    });
+
+    let rimborsi = [];
+    let i = 0, j = 0;
+
+    while (i < debitori.length && j < creditori.length) {
+        let deb = debitori[i];
+        let cred = creditori[j];
+
+        let min = Math.min(deb.importo, cred.importo);
+        min = Math.round(min * 100) / 100;
+
+        if (min > 0) {
+            rimborsi.push({ da: deb.nome, a: cred.nome, importo: min });
+        }
+
+        deb.importo = Math.round((deb.importo - min) * 100) / 100;
+        cred.importo = Math.round((cred.importo - min) * 100) / 100;
+
+        if (deb.importo <= 0.001) i++;
+        if (cred.importo <= 0.001) j++;
+    }
+
+    return rimborsi;
 }
 
-// Calcolo dettagliato "tabellaTotali"/"tabellaRimborsi" per una singola cena
-function calcolaDettaglioCena(cena) {
-  const { quoteColonna, quoteSeparate } = calcolaQuoteComplete(cena);
-  const righe = cena.persone.map(p => {
-    const dovuto = dovutoCena(p, cena.sconti, quoteColonna, quoteSeparate);
-    const dovutoSenzaSconti = totaleSenzaSconti(p) +
-      Object.values(quoteColonna[p.nome] || {}).reduce((a, b) => a + b, 0) +
-      Object.values(quoteSeparate[p.nome] || {}).reduce((a, b) => a + b, 0);
-    const saldo = p.pagato - dovuto;
-    return { nome: p.nome, dovuto, dovutoSenzaSconti, pagato: p.pagato, saldo };
-  });
+// Calcola i Saldi Complessivi Globali
+function calcolaSaldiGlobali() {
+    let saldi = {};
+    state.partecipanti.forEach(p => {
+        saldi[p] = { pagato: 0, speso: 0, centesimini: [], saldo: 0 };
+    });
 
-  const totgen = righe.reduce((a, r) => a + r.dovuto, 0);
-  const totgenSenzaSconti = righe.reduce((a, r) => a + r.dovutoSenzaSconti, 0);
-  const totpagato = righe.reduce((a, r) => a + r.pagato, 0);
-  const hasSconti = Object.values(cena.sconti).some(v => v > 0);
+    state.spese.forEach(spesa => {
+        const { dettagliPersona } = calcolaDettaglioSpesa(spesa);
+        Object.keys(dettagliPersona).forEach(p => {
+            if (saldi[p]) {
+                saldi[p].pagato += dettagliPersona[p].haPagato;
+                saldi[p].speso += dettagliPersona[p].haSpeso;
+                if (dettagliPersona[p].centesiminiStr) {
+                    saldi[p].centesimini.push(dettagliPersona[p].centesiminiStr);
+                }
+            }
+        });
+    });
 
-  // transazioni interne alla cena (usa le spese condivise proprie della cena — fix di un bug
-  // presente nell'originale, che usava sempre le speseCondivise dell'ULTIMA cena caricata)
-  const saldiCena = {};
-  righe.forEach(r => saldiCena[r.nome] = r.saldo);
-  const transazioniCena = calcolaTransazioni(saldiCena);
+    let saldiSoloMonto = {};
+    Object.keys(saldi).forEach(p => {
+        saldi[p].pagato = Math.round(saldi[p].pagato * 100) / 100;
+        saldi[p].speso = Math.round(saldi[p].speso * 100) / 100;
+        saldi[p].saldo = Math.round((saldi[p].pagato - saldi[p].speso) * 100) / 100;
+        saldiSoloMonto[p] = saldi[p].saldo;
+    });
 
-  return { righe, totgen, totgenSenzaSconti, totpagato, hasSconti, transazioniCena, quoteColonna, quoteSeparate };
+    const rimborsiGlobali = calcolaRimborsiOptimizzati(saldiSoloMonto);
+
+    return { saldiDettagliati: saldi, rimborsiGlobali: rimborsiGlobali };
 }
