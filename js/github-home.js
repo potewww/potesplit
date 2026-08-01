@@ -42,6 +42,20 @@ const GH_HOME = {
     return `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
   },
 
+  // I crawler dei social (WhatsApp, Telegram, ecc.) leggono l'HTML statico di index.html senza
+  // eseguire JavaScript: perché l'anteprima del link mostri il titolo scelto per l'evento, il
+  // file index.html copiato/aggiornato nella repo dell'evento deve avere <title>, og:title e
+  // twitter:title già sostituiti con quel titolo (non basta scriverlo in data/config.json,
+  // che viene letto solo lato client dal sito dell'evento già aperto).
+  sostituisciTagTitolo(html, titolo) {
+    const t = String(titolo)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    return html
+      .replace(/<title>[^<]*<\/title>/, `<title>${t}</title>`)
+      .replace(/(<meta property="og:title" content=")[^"]*("[^>]*>)/, `$1${t}$2`)
+      .replace(/(<meta name="twitter:title" content=")[^"]*("[^>]*>)/, `$1${t}$2`);
+  },
+
   // ---------- lettura di un file da template/ (su questa repo, "home") ----------
   async readTemplateFile(path) {
     const res = await fetch(this.contentsUrl(this.owner, this.repo, `template/${path}`) + `?ref=${this.branch}`, { headers: this.headers() });
@@ -111,13 +125,19 @@ const GH_HOME = {
     return await res.json();
   },
 
-  // Legge un file JSON di un evento (usato per leggere/aggiornare data/config.json in rinomina)
-  async readJSONFromRepo(repoName, path, branch) {
+  // Legge un file di testo grezzo di un evento (usato per index.html in fase di rinomina)
+  async readTextFromRepo(repoName, path, branch) {
     const res = await fetch(this.contentsUrl(this.org, repoName, path) + `?ref=${branch}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Impossibile leggere ${path} dalla repository "${repoName}" (errore ${res.status}).`);
     const data = await res.json();
     const content = decodeURIComponent(escape(atob(data.content.replace(/\n/g, ""))));
-    return { json: JSON.parse(content), sha: data.sha };
+    return { text: content, sha: data.sha };
+  },
+
+  // Legge un file JSON di un evento (usato per leggere/aggiornare data/config.json in rinomina)
+  async readJSONFromRepo(repoName, path, branch) {
+    const { text, sha } = await this.readTextFromRepo(repoName, path, branch);
+    return { json: JSON.parse(text), sha };
   },
 
   // Elimina la repository GitHub dell'evento. Richiede lo scope "delete_repo"
@@ -203,6 +223,17 @@ const GH_HOME = {
         configJson = { titolo: nuovoTitolo, credenziali: [] };
       }
       await this.putFileInRepo(slugFinale, "data/config.json", JSON.stringify(configJson, null, 2), "Aggiorna titolo evento", branch);
+
+      // Aggiorna anche <title>/og:title/twitter:title dentro index.html: sono letti dai
+      // crawler dei social (WhatsApp, ecc.) direttamente dall'HTML statico, senza eseguire
+      // JavaScript, quindi non basta il titolo salvato in data/config.json.
+      try {
+        const { text: htmlAttuale } = await this.readTextFromRepo(slugFinale, "index.html", branch);
+        const htmlAggiornato = this.sostituisciTagTitolo(htmlAttuale, nuovoTitolo);
+        await this.putFileInRepo(slugFinale, "index.html", htmlAggiornato, "Aggiorna titolo evento nella pagina", branch);
+      } catch (e) {
+        throw new Error(`Titolo salvato in data/config.json, ma non è stato possibile aggiornare index.html (${e.message}). L'anteprima del link potrebbe restare quella vecchia.`);
+      }
     }
 
     return {
@@ -266,7 +297,10 @@ const GH_HOME = {
 
     progress("Copio i file del progetto...");
     for (const path of this.templateFiles) {
-      const content = await this.readTemplateFile(path);
+      let content = await this.readTemplateFile(path);
+      // index.html arriva dal template col titolo placeholder ("Rimborsi"): lo sostituiamo
+      // subito col nome scelto per l'evento, così l'anteprima del link è corretta da subito.
+      if (path === "index.html") content = this.sostituisciTagTitolo(content, nomeVisualizzato);
       await this.putFileInRepo(slug, path, content, "Inizializza da template", branch);
     }
 
