@@ -165,6 +165,15 @@ function renderTitolo() {
   document.title = t;
   const h1 = document.querySelector("#page-title");
   if (h1) h1.textContent = t; // textContent: già sicuro di suo, nessun rischio di HTML injection
+  // Aggiorna anche i meta tag Open Graph/Twitter già presenti nel DOM corrente: non serve a far
+  // vedere il titolo giusto ai crawler (che leggono l'HTML statico su GitHub, non eseguono JS —
+  // per quello ci pensa salvaTitoloEvento riscrivendo index.html), ma tiene coerente la pagina
+  // se qualcuno la ispeziona dal browser mentre è aperta.
+  document.querySelectorAll('meta[property="og:title"], meta[name="twitter:title"]').forEach(m => m.setAttribute("content", t));
+  const inputTitolo = document.querySelector("#f-titolo-evento");
+  // Non sovrascrivere mentre l'utente sta scrivendo dentro al campo (evita di perdere quanto
+  // digitato se un salvataggio di un'altra sezione fa ripartire renderAll nel frattempo).
+  if (inputTitolo && document.activeElement !== inputTitolo) inputTitolo.value = t;
 }
 
 function renderHomeLink() {
@@ -1429,6 +1438,36 @@ async function submitCena(e) {
   } catch (err) { setStatus("#status-cena", err.message, true); }
 }
 
+// --- Titolo evento (sincronizzato anche nell'anteprima link, es. WhatsApp) ---
+// I crawler dei social (WhatsApp, Telegram, ecc.) leggono l'HTML statico di index.html senza
+// eseguire JavaScript: per far comparire il titolo scelto nell'anteprima del link non basta
+// cambiare document.title via JS, bisogna riscrivere davvero <title> e i meta tag Open
+// Graph/Twitter dentro al file index.html sul repo.
+function aggiornaTagTitoloInHtml(html, nuovoTitolo) {
+  const t = escapeHtml(nuovoTitolo);
+  return html
+    .replace(/<title>[^<]*<\/title>/, `<title>${t}</title>`)
+    .replace(/(<meta property="og:title" content=")[^"]*("[^>]*>)/, `$1${t}$2`)
+    .replace(/(<meta name="twitter:title" content=")[^"]*("[^>]*>)/, `$1${t}$2`);
+}
+
+async function submitTitoloEvento(ev) {
+  ev.preventDefault();
+  const titolo = document.querySelector("#f-titolo-evento").value.trim();
+  if (!titolo) { setStatus("#status-titolo-evento", "Inserisci un titolo.", true); return; }
+  if (!validaOAvvisa(titolo, "Titolo evento")) return;
+  try {
+    setStatus("#status-titolo-evento", "Salvataggio in corso…");
+    await GH.writeJSON("data/config.json", { ...STATE.config, titolo }, `Aggiorna titolo evento: ${titolo}`);
+    const { text: htmlAttuale } = await GH.readText("index.html");
+    const htmlAggiornato = aggiornaTagTitoloInHtml(htmlAttuale, titolo);
+    await GH.writeText("index.html", htmlAggiornato, `Aggiorna titolo evento nella pagina: ${titolo}`);
+    STATE.config.titolo = titolo;
+    renderTitolo();
+    setStatus("#status-titolo-evento", "Titolo salvato. L'anteprima del link potrebbe impiegare un po' ad aggiornarsi (WhatsApp e simili tengono una cache).", false);
+  } catch (err) { setStatus("#status-titolo-evento", err.message, true); }
+}
+
 function renderListaCredenziali() {
   const box = document.querySelector("#lista-credenziali");
   box.innerHTML = "";
@@ -1571,6 +1610,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.querySelector("#f-rimborso-form").addEventListener("submit", submitRimborso);
   document.querySelector("#f-cena-form").addEventListener("submit", submitCena);
   document.querySelector("#f-credenziale-form").addEventListener("submit", submitCredenziale);
+  document.querySelector("#f-titolo-evento-form").addEventListener("submit", submitTitoloEvento);
   document.querySelector("#f-cred-tipo").addEventListener("change", aggiornaCampiCredenziale);
   document.querySelector("#btn-cred-annulla").addEventListener("click", annullaModificaCredenziale);
   aggiornaCampiCredenziale();
