@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rimborsi</title>
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Rimborsi">
+  <meta property="og:description" content="Registro spese, rimborsi e transazioni">
+  <meta property="og:image" content="https://potewww.github.io/potesplit/img/logo.png">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Rimborsi">
+  <meta name="twitter:description" content="Registro spese, rimborsi e transazioni">
   <link rel="icon" type="image/png" href="https://potewww.github.io/potesplit/img/logo.png">
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -86,6 +93,23 @@
     <h2>Gestisci dati</h2>
     <div class="warning-banner" id="config-warning" style="display:none">
       ⚠️ <strong>js/config.js</strong> non è ancora stato configurato con il tuo username e nome del repository GitHub: finché resta così, nessun salvataggio funzionerà. Vedi il README.
+    </div>
+
+    <div class="collapsible-section collapsed" id="sec-titolo-evento">
+      <div class="collapsible-header" data-toggle="sec-titolo-evento">
+        <strong>✏️ Titolo evento</strong>
+        <button class="btn-gear btn-arrow" type="button" aria-label="Mostra/nascondi">▶</button>
+      </div>
+      <div class="collapsible-body">
+        <p><em>Il titolo scelto qui compare come nome della pagina, nell'intestazione, e nell'anteprima
+          del link quando lo condividi (es. su WhatsApp): viene aggiornato automaticamente ovunque.</em></p>
+        <form class="admin-form" id="f-titolo-evento-form">
+          <label>Titolo dell'evento</label>
+          <input type="text" id="f-titolo-evento" placeholder="Es. Weekend a Ischia" required>
+          <button class="btn-primary" type="submit">Salva titolo</button>
+          <div class="status" id="status-titolo-evento"></div>
+        </form>
+      </div>
     </div>
 
     <div class="token-box collapsed" id="token-box">
