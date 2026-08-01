@@ -285,6 +285,10 @@ function applicaSolataAutomatica(persone, sconti, quoteColonna, quoteSeparate, c
 // Calcola tutte le quote di una cena (condivise + solata/controsolata automatiche)
 function calcolaQuoteComplete(cena) {
   const { quoteColonna, quoteSeparate, centesiminiDettaglio } = calcolaQuoteCondivise(cena.persone, cena.speseCondivise, cena.sconti);
+  // La solata/controsolata resta sempre attiva e si basa sul totale effettivamente anticipato
+  // per la cena (anche da un eventuale pagatore esterno alla cena), ma la ridistribuzione viene
+  // applicata ESCLUSIVAMENTE ai partecipanti reali (cena.persone): un pagatore esterno alla cena
+  // non riceve mai solata/controsolata, resta sempre rimborsato per intero di quanto ha versato.
   const totPagato = (cena.pagatori || []).reduce((a, p) => a + (p.importo || 0), 0);
   const eventoSolata = applicaSolataAutomatica(cena.persone, cena.sconti, quoteColonna, quoteSeparate, centesiminiDettaglio, totPagato);
   return { quoteColonna, quoteSeparate, centesiminiDettaglio, eventoSolata };
@@ -393,9 +397,10 @@ function calcolaRiepilogoGruppoSpesa(gruppo) {
   const diff = totPagato - totDovutoBase;
   const solata = {}, controsolata = {};
   partecipanti.forEach(n => { solata[n] = 0; controsolata[n] = 0; });
-  // La solata/controsolata (ridistribuzione del surplus/deficit) va anch'essa ripartita
-  // esclusivamente tra i partecipanti alla spesa, mai su chi ha solo anticipato i soldi
-  // senza parteciparvi.
+  // La solata/controsolata resta sempre attiva e si basa sul totale effettivamente versato
+  // (anche da un eventuale pagatore esterno), ma la ridistribuzione va applicata ESCLUSIVAMENTE
+  // ai partecipanti reali alla spesa: un pagatore esterno non riceve mai solata/controsolata,
+  // il suo dovutoBase resta sempre 0 e il suo saldo resta sempre pari a quanto ha versato.
   const risultatoSC = calcolaSolataControsolata(diff, partecipantiSpesa, dovutoBase);
   let eventoSolata = null;
   if (risultatoSC) {
