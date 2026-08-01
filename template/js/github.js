@@ -39,8 +39,9 @@ const GH = {
     return h;
   },
 
-  // Legge un file JSON dal repo (usato anche in sola lettura, senza token, per la vista pubblica)
-  async readJSON(path) {
+  // Legge un file di testo grezzo dal repo (usato anche in sola lettura, senza token, per la
+  // vista pubblica). readJSON si appoggia a questo e fa JSON.parse del contenuto.
+  async readText(path) {
     const res = await fetch(this.apiUrl(path) + `?ref=${this.branch}`, { headers: this.headers() });
     if (!res.ok) {
       if (res.status === 404) throw new Error(`Repository o file non trovato (${this.owner}/${this.repo}/${path}). Controlla js/config.js.`);
@@ -49,23 +50,28 @@ const GH = {
     }
     const data = await res.json();
     const content = decodeURIComponent(escape(atob(data.content.replace(/\n/g, ""))));
-    return { json: JSON.parse(content), sha: data.sha };
+    return { text: content, sha: data.sha };
   },
 
-  // Scrive (crea o aggiorna) un file JSON nel repo
-  async writeJSON(path, obj, message) {
+  async readJSON(path) {
+    const { text, sha } = await this.readText(path);
+    return { json: JSON.parse(text), sha };
+  },
+
+  // Scrive (crea o aggiorna) un file di testo grezzo nel repo. writeJSON si appoggia a questo.
+  async writeText(path, text, message) {
     if (!this.getToken()) throw new Error("Nessun token GitHub impostato. Vai in cima alla pagina \"Gestisci dati\" e inseriscilo.");
     if (this.owner === "TUO-USERNAME-GITHUB" || this.repo === "TUO-REPO") {
       throw new Error("js/config.js non è ancora stato configurato con il tuo username/repo GitHub.");
     }
     let sha;
     try {
-      const cur = await this.readJSON(path);
+      const cur = await this.readText(path);
       sha = cur.sha;
     } catch (e) {
       sha = undefined; // file non esiste ancora
     }
-    const content = btoa(unescape(encodeURIComponent(JSON.stringify(obj, null, 2))));
+    const content = btoa(unescape(encodeURIComponent(text)));
     const body = { message, content, branch: this.branch };
     if (sha) body.sha = sha;
 
@@ -81,5 +87,9 @@ const GH = {
       throw new Error(`Errore scrittura ${path}: ${res.status} ${err.message || ""}`);
     }
     return await res.json();
+  },
+
+  async writeJSON(path, obj, message) {
+    return this.writeText(path, JSON.stringify(obj, null, 2), message);
   }
 };
